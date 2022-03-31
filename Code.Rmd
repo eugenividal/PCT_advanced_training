@@ -20,10 +20,136 @@ pkgs = c(
 remotes::install_cran(pkgs)
 ```
 
+## Getting PCT data
+
 ```{r}
 library(pct)
 library(sf)      # key package for working with spatial vector data
 library(dplyr)   # in the tidyverse
 library(tmap)    # installed alongside mapview
+```
+
+```{r}
+region_name = "isle-of-wight"
+zones_all = get_pct_zones(region_name, geography = "msoa")
+lines_all = get_pct_lines(region_name, geography = "msoa")
+routes_all = get_pct_routes_fast(region_name, geography = "msoa")
+rnet_all = get_pct_rnet(region_name)
+```
+
+```{r}
+plot(zones_all$geometry)
+plot(lines_all$geometry, col = "blue", add = TRUE)
+plot(routes_all$geometry, col = "green", add = TRUE)
+plot(rnet_all$geometry, col = "red", lwd = sqrt(rnet_all$bicycle), add = TRUE)
+```
+
+## Visualising PCT data
+
+```{r}
+tm_shape(rnet_all) +
+  tm_lines(lwd = "dutch_slc", scale = 9)
+```
+
+```{r}
+tmap_mode("view")
+tm_shape(rnet_all) +
+  tm_lines(lwd = "dutch_slc", scale = 9)
+```
+
+```{r}
+# basic plot
+max_distance = 7
+# plot(zones_all$geometry)
+# plot(lines_all$geometry[lines_all$all > 500], col = "red", add = TRUE)
+
+# create 'active' desire lines (less than 5 km)
+active = lines_all %>% 
+  mutate(`Percent Active` = (bicycle + foot) / all * 100) %>% 
+  filter(e_dist_km < max_distance)
+
+tm_shape(active) +
+  tm_lines("Percent Active", palette = "RdYlBu", lwd = "all", scale = 9)
+```
+
+```{r}
+# Create car dependent desire lines
+car_dependent = lines_all %>% 
+  mutate(`Percent Drive` = (car_driver) / all * 100) %>% 
+  filter(e_dist_km < max_distance)
+tm_shape(car_dependent) +
+  tm_lines("Percent Drive", palette = "-RdYlBu", lwd = "all", scale = 9)
+```
+
+## Exploring PCT data
+
+```{r}
+z = zones_all %>% 
+  select(geo_code, geo_name, all, foot, bicycle, car_driver)
+
+z_highest_cycling <- top_n (z, n=1, wt = bicycle)
+
+plot(z$geometry)
+plot(z_highest_cycling$geometry, col ="red", add = TRUE)
+```
+
+```{r}
+# Aim: get top 5 cycle routes
+l_msoa = lines_all %>% 
+  select(geo_code1, geo_code2, all, foot, bicycle, car_driver, rf_avslope_perc, rf_dist_km)
+
+l_msoa_highest_cycling <- top_n(l_msoa, n = 5, wt = bicycle)
+
+plot(z$geometry)
+plot(l_msoa_highest_cycling$geometry, col = "green",  add = TRUE)
+```
+
+```{r}
+l_msoa$pcycle = l_msoa$bicycle / l_msoa$all * 100
+plot(l_msoa["pcycle"], lwd = l_msoa$all / mean(l_msoa$all), breaks = c(0, 5, 10, 15, 20, 25))
+```
+
+```{r}
+rnet_highest_cycling_gd <- top_n(rnet_all, n=500, wt= dutch_slc)
+
+plot(z$geometry)
+plot(rnet_highest_cycling_gd$geometry, col = "green",  add = TRUE)
+```
+
+```{r}
+l_less_than_10km <- lines_all %>% filter(e_dist_km<10)
+
+plot(l_less_than_10km %>% filter(foot > 5) %>%  select(foot))
+plot(l_less_than_10km %>% filter(foot > 5) %>%  select(bicycle))
+plot(l_less_than_10km %>% filter(foot > 5) %>%  select(car_driver))
+```
+
+## PCT scenarios
+
+```{r}
+l_msoa$euclidean_distance = as.numeric(sf::st_length(l_msoa))
+l_msoa$pcycle_govtarget = uptake_pct_govtarget_2020(
+  distance = l_msoa$rf_dist_km,
+  gradient = l_msoa$rf_avslope_perc
+  ) * 100 + l_msoa$pcycle
+```
+
+## Routing and route networks
+
+### Routes
+
+```{r}
+l_top = l_msoa %>% 
+  top_n(n = 1, wt = bicycle)
+
+?route
+
+route(l_top, route_fun = cyclestreets::journey)
+```
+
+## Route network
+
+```{r}
+route_data = sf::st_sf(wight_lines_30, geometry = wight_routes_30$geometry)
 ```
 
